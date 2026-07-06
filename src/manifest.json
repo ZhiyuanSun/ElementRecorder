@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Element Recorder",
+  "version": "0.1.0",
+  "description": "Record your screen or visually isolate a selected webpage element as high-quality video.",
+  "minimum_chrome_version": "120",
+  "action": {
+    "default_title": "Element Recorder",
+    "default_popup": "popup/popup.html"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "permissions": ["activeTab", "scripting", "tabCapture", "offscreen", "downloads", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
