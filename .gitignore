@@ -1,4 +1,6 @@
 node_modules/
 dist/
+element-recorder-chrome-web-store/
 .DS_Store
 npm-debug.log*
+*.zip

@@ -16,40 +16,93 @@
         </div>
       </header>
 
-      <section class="actions" aria-label="Recording modes">
-        <button class="mode-button primary" id="record-screen" type="button">
-          <span class="mode-icon" aria-hidden="true">●</span>
-          <span>
-            <strong>Record Screen</strong>
-            <small>Capture a tab, window, or display</small>
-          </span>
-        </button>
+      <section class="actions" aria-label="Capture actions">
+        <div class="action-group">
+          <div class="action-kind">
+            <span class="mode-icon" aria-hidden="true">●</span>
+            <span>
+              <strong>Record</strong>
+              <small>Video capture</small>
+            </span>
+          </div>
+          <div class="action-choices" aria-label="Recording modes">
+            <button class="choice-button primary" id="record-screen" type="button">
+              <strong>Screen</strong>
+              <small>Visible tab</small>
+            </button>
+            <button class="choice-button" id="record-element" type="button">
+              <strong>Element</strong>
+              <small>Select area</small>
+            </button>
+          </div>
+        </div>
 
-        <button class="mode-button" id="record-element" type="button">
-          <span class="mode-icon focus" aria-hidden="true"></span>
-          <span>
-            <strong>Record Element</strong>
-            <small>Select an area visually</small>
-          </span>
-        </button>
+        <div class="action-group">
+          <div class="action-kind">
+            <span class="mode-icon camera" aria-hidden="true"></span>
+            <span>
+              <strong>Screenshot</strong>
+              <small>Image capture</small>
+            </span>
+          </div>
+          <div class="action-choices" aria-label="Screenshot modes">
+            <button class="choice-button" id="screenshot-screen" type="button">
+              <strong>Screen</strong>
+              <small>Visible tab</small>
+            </button>
+            <button class="choice-button" id="screenshot-element" type="button">
+              <strong>Element</strong>
+              <small>Select area</small>
+            </button>
+          </div>
+        </div>
       </section>
 
-      <section class="format-section" aria-label="Export format">
-        <span>Format</span>
-        <div class="format-options" role="radiogroup" aria-label="Export format">
+      <section class="format-section" aria-label="Video format">
+        <span>Video</span>
+        <div class="format-options" role="radiogroup" aria-label="Video format">
           <label>
-            <input type="radio" name="format" value="webm" checked />
+            <input type="radio" name="recording-format" value="webm" checked />
             <span>WebM</span>
           </label>
           <label>
-            <input type="radio" name="format" value="mp4" />
+            <input type="radio" name="recording-format" value="mp4" />
             <span>MP4</span>
           </label>
           <label>
-            <input type="radio" name="format" value="gif" />
+            <input type="radio" name="recording-format" value="gif" />
             <span>GIF</span>
           </label>
         </div>
+      </section>
+
+      <section class="format-section" aria-label="Screenshot format">
+        <span>Image</span>
+        <div class="format-options" role="radiogroup" aria-label="Screenshot format">
+          <label>
+            <input type="radio" name="screenshot-format" value="png" checked />
+            <span>PNG</span>
+          </label>
+          <label>
+            <input type="radio" name="screenshot-format" value="jpeg" />
+            <span>JPG</span>
+          </label>
+          <label>
+            <input type="radio" name="screenshot-format" value="webp" />
+            <span>WebP</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="option-section" aria-label="Recording options">
+        <label class="toggle-row">
+          <input type="checkbox" id="hide-mouse" checked />
+          <span class="toggle-ui" aria-hidden="true"></span>
+          <span>
+            <strong>Hide Mouse</strong>
+            <small>Hide the cursor while recording elements</small>
+          </span>
+        </label>
       </section>
 
       <p class="status" id="status" role="status" aria-live="polite"></p>

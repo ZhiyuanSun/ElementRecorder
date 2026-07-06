@@ -2,6 +2,7 @@ import { GIFEncoder, applyPalette, quantize } from "gifenc";
 
 type RecorderMode = "screen" | "element";
 type RecordingFormat = "webm" | "mp4" | "gif";
+type ScreenshotFormat = "png" | "jpeg" | "webp";
 
 type CropRect = {
   left: number;
@@ -31,7 +32,18 @@ type OffscreenControlMessage =
   | { target: "offscreen"; type: "TOGGLE_TAB_RECORDING_PAUSE" }
   | { target: "offscreen"; type: "UPDATE_TAB_RECORDING_CROP"; crop: CropRect; viewport: ViewportSize };
 
-type OffscreenMessage = StartOffscreenRecordingMessage | OffscreenControlMessage;
+type ProcessAndDownloadScreenshotMessage = {
+  target: "offscreen";
+  type: "PROCESS_AND_DOWNLOAD_SCREENSHOT";
+  tabId: number;
+  filename: string;
+  dataUrl: string;
+  format: ScreenshotFormat;
+  crop?: CropRect;
+  viewport: ViewportSize;
+};
+
+type OffscreenMessage = StartOffscreenRecordingMessage | OffscreenControlMessage | ProcessAndDownloadScreenshotMessage;
 
 export {};
 
@@ -451,6 +463,13 @@ chrome.runtime.onMessage.addListener((message: OffscreenMessage, _sender, sendRe
     return true;
   }
 
+  if (message.type === "PROCESS_AND_DOWNLOAD_SCREENSHOT") {
+    void processAndDownloadScreenshot(message)
+      .then((response) => sendResponse({ ok: true, ...response }))
+      .catch((error) => sendResponse({ ok: false, error: getErrorMessage(error) }));
+    return true;
+  }
+
   return false;
 });
 
@@ -497,7 +516,62 @@ function waitForVideoMetadata(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-async function downloadBlob(blob: Blob, filename: string, tabId: number): Promise<void> {
+async function processAndDownloadScreenshot(
+  message: ProcessAndDownloadScreenshotMessage
+): Promise<{ downloadId: number; path?: string | undefined }> {
+  const image = await loadImage(message.dataUrl);
+  const viewport = sanitizeViewport(message.viewport);
+  const scaleX = image.naturalWidth / viewport.width;
+  const scaleY = image.naturalHeight / viewport.height;
+  const crop = message.crop ? sanitizeCrop(message.crop) : undefined;
+  const sourceX = crop ? clamp(Math.round(crop.left * scaleX), 0, image.naturalWidth - 1) : 0;
+  const sourceY = crop ? clamp(Math.round(crop.top * scaleY), 0, image.naturalHeight - 1) : 0;
+  const sourceWidth = crop ? clamp(Math.round(crop.width * scaleX), 1, image.naturalWidth - sourceX) : image.naturalWidth;
+  const sourceHeight = crop
+    ? clamp(Math.round(crop.height * scaleY), 1, image.naturalHeight - sourceY)
+    : image.naturalHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
+
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) {
+    throw new Error("Canvas rendering is unavailable.");
+  }
+
+  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+  return downloadBlob(await canvasToBlob(canvas, getScreenshotMimeType(message.format)), message.filename, message.tabId);
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image), { once: true });
+    image.addEventListener("error", () => reject(new Error("Chrome could not prepare the screenshot.")), {
+      once: true
+    });
+    image.src = src;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+
+      reject(new Error("Chrome could not encode the screenshot."));
+    }, type);
+  });
+}
+
+async function downloadBlob(
+  blob: Blob,
+  filename: string,
+  tabId: number
+): Promise<{ downloadId: number; path?: string | undefined }> {
   const url = URL.createObjectURL(blob);
   try {
     const response = await chrome.runtime.sendMessage({
@@ -510,6 +584,11 @@ async function downloadBlob(blob: Blob, filename: string, tabId: number): Promis
     if (!response?.ok) {
       throw new Error(response?.error ?? "Chrome could not save the recording.");
     }
+
+    return {
+      downloadId: response.downloadId,
+      path: response.path
+    };
   } finally {
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
@@ -539,6 +618,17 @@ function fitWithin(width: number, height: number, maxSide: number): { width: num
     width: Math.max(2, Math.round(safeWidth * scale)),
     height: Math.max(2, Math.round(safeHeight * scale))
   };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+function getScreenshotMimeType(format: ScreenshotFormat): string {
+  if (format === "jpeg") return "image/jpeg";
+  if (format === "webp") return "image/webp";
+  return "image/png";
 }
 
 function getBestMimeType(format: RecordingFormat): string {

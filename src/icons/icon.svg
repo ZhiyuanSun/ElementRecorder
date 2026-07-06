@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Element Recorder">
+  <defs>
+    <linearGradient id="mark" x1="18" y1="16" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1e6bff"/>
+      <stop offset=".62" stop-color="#00a884"/>
+      <stop offset="1" stop-color="#121417"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#mark)"/>
+  <circle cx="87" cy="41" r="12" fill="#fff"/>
+</svg>

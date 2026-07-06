@@ -2,22 +2,26 @@
   "manifest_version": 3,
   "name": "Element Recorder",
   "version": "0.1.0",
-  "description": "Record your screen or visually isolate a selected webpage element as high-quality video.",
+  "description": "Record or screenshot the active tab, including visually selected page elements.",
   "minimum_chrome_version": "120",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "action": {
     "default_title": "Element Recorder",
-    "default_popup": "popup/popup.html"
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "background": {
     "service_worker": "background/service-worker.js"
   },
-  "permissions": ["activeTab", "scripting", "tabCapture", "offscreen", "downloads", "storage"],
-  "host_permissions": ["<all_urls>"],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content/content-script.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  "permissions": ["activeTab", "scripting", "tabCapture", "offscreen", "downloads", "storage"]
 }

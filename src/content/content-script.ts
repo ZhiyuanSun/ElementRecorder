@@ -1,5 +1,6 @@
 type RecorderMode = "screen" | "element";
 type RecordingFormat = "webm" | "mp4" | "gif";
+type ScreenshotFormat = "png" | "jpeg" | "webp";
 type RecorderState = "idle" | "selecting" | "locked" | "recording";
 
 type RectSnapshot = {
@@ -12,8 +13,14 @@ type RectSnapshot = {
 };
 
 type RecorderCommandMessage = {
-  type: "START_SCREEN_RECORDING" | "START_ELEMENT_SELECTION";
+  type:
+    | "START_SCREEN_RECORDING"
+    | "START_ELEMENT_SELECTION"
+    | "TAKE_SCREEN_SCREENSHOT"
+    | "START_ELEMENT_SCREENSHOT_SELECTION";
   format?: RecordingFormat;
+  screenshotFormat?: ScreenshotFormat;
+  hideMouse?: boolean;
 } | {
   type: "RECORDING_SAVED";
   filename: string;
@@ -39,11 +46,19 @@ if (!window.__elementRecorderLoaded) {
     constructor(private readonly controller: RecordingController) {
       chrome.runtime.onMessage.addListener((message: RecorderCommandMessage) => {
         if (message?.type === "START_SCREEN_RECORDING") {
-          void this.controller.startScreenRecording(getMessageFormat(message));
+          void this.controller.startScreenRecording(getMessageFormat(message), getMessageHideMouse(message));
         }
 
         if (message?.type === "START_ELEMENT_SELECTION") {
-          this.controller.startElementSelection(getMessageFormat(message));
+          this.controller.startElementSelection(getMessageFormat(message), getMessageHideMouse(message));
+        }
+
+        if (message?.type === "TAKE_SCREEN_SCREENSHOT") {
+          void this.controller.captureScreenScreenshot(getMessageScreenshotFormat(message));
+        }
+
+        if (message?.type === "START_ELEMENT_SCREENSHOT_SELECTION") {
+          this.controller.startElementScreenshotSelection(getMessageScreenshotFormat(message));
         }
 
         if (message?.type === "RECORDING_SAVE_FAILED") {
@@ -347,15 +362,21 @@ if (!window.__elementRecorderLoaded) {
       this.bubble.className = "er-action-bubble";
       this.bubble.innerHTML = `
         <button class="er-pill er-record" type="button" data-action="record" aria-label="Record selected element">
-          <span aria-hidden="true">●</span><strong>Record</strong>
+          <span class="er-pill-icon record" aria-hidden="true">●</span><strong>Record</strong>
         </button>
         <button class="er-icon-button" type="button" data-action="cancel" aria-label="Cancel selection">×</button>
       `;
       this.ui.root.append(this.bubble);
     }
 
-    show(target: Element, handlers: { onRecord: () => void; onCancel: () => void }): void {
+    show(
+      target: Element,
+      handlers: { onRecord: () => void; onCancel: () => void },
+      primaryLabel = "Record",
+      primaryIcon: "record" | "camera" = "record"
+    ): void {
       this.target = target;
+      this.setPrimaryAction(primaryLabel, primaryIcon);
       this.bubble.classList.add("visible");
       this.bubble.addEventListener("click", this.onClick);
       this.handlers = handlers;
@@ -390,6 +411,19 @@ if (!window.__elementRecorderLoaded) {
         this.handlers.onCancel();
       }
     };
+
+    private setPrimaryAction(label: string, icon: "record" | "camera"): void {
+      const button = this.bubble.querySelector<HTMLButtonElement>("button[data-action='record']");
+      const text = button?.querySelector("strong");
+      const iconEl = button?.querySelector<HTMLElement>(".er-pill-icon");
+      if (text) text.textContent = label;
+      if (iconEl) {
+        iconEl.textContent = icon === "record" ? "●" : "";
+        iconEl.classList.toggle("record", icon === "record");
+        iconEl.classList.toggle("camera", icon === "camera");
+      }
+      button?.setAttribute("aria-label", `${label} selected element`);
+    }
 
     private update = (): void => {
       cancelAnimationFrame(this.rafId);
@@ -635,6 +669,22 @@ if (!window.__elementRecorderLoaded) {
     }
   }
 
+  class ScreenshotCapturer {
+    async capture(mode: RecorderMode, format: ScreenshotFormat, crop?: RectSnapshot): Promise<void> {
+      const response = await chrome.runtime.sendMessage({
+        type: "CAPTURE_TAB_SCREENSHOT",
+        mode,
+        format,
+        crop: crop ? toCropRect(crop) : undefined,
+        viewport: getViewportSize()
+      });
+
+      if (!response?.ok) {
+        throw new Error(response?.error ?? "Unable to save screenshot.");
+      }
+    }
+  }
+
   class ElementSelectionController {
     selectedElement: Element | null = null;
     private readonly cursor = new CursorScope();
@@ -646,7 +696,12 @@ if (!window.__elementRecorderLoaded) {
       private readonly bubble: FloatingActionBubble
     ) {}
 
-    start(onRecord: (element: Element) => void, onCancel: () => void): void {
+    start(
+      onRecord: (element: Element) => void,
+      onCancel: () => void,
+      primaryLabel = "Record",
+      primaryIcon: "record" | "camera" = "record"
+    ): void {
       this.selectedElement = null;
       this.state.set("selecting");
       this.cursor.enable();
@@ -673,7 +728,7 @@ if (!window.__elementRecorderLoaded) {
             onRecord(element);
           },
           onCancel: cancelHandler
-        });
+        }, primaryLabel, primaryIcon);
       });
     }
 
@@ -697,6 +752,7 @@ if (!window.__elementRecorderLoaded) {
     private ui: ShadowUIRoot | null = null;
     private state = new UIStateManager();
     private recorder = new ScreenRecorder();
+    private screenshot = new ScreenshotCapturer();
     private selection: ElementSelectionController | undefined;
     private controls: RecordingControlPanel | undefined;
     private startGate: ScreenStartBubble | undefined;
@@ -704,14 +760,16 @@ if (!window.__elementRecorderLoaded) {
     private cropTarget: Element | null = null;
     private lastCropSignature = "";
     private format: RecordingFormat = "webm";
+    private hideMouse = true;
     private readonly cursorSuppressor = new RecordingCursorSuppressor();
 
-    startElementSelection(format: RecordingFormat): void {
+    startElementSelection(format: RecordingFormat, hideMouse: boolean): void {
       if (this.state.isBusy()) {
         this.reset();
       }
 
       this.format = format;
+      this.hideMouse = hideMouse;
       const ui = this.ensureUI();
       const highlighter = new HoverHighlighter(ui);
       const overlay = new OverlayRenderer(ui);
@@ -724,23 +782,70 @@ if (!window.__elementRecorderLoaded) {
       );
     }
 
-    async startScreenRecording(format: RecordingFormat): Promise<void> {
+    async startScreenRecording(format: RecordingFormat, hideMouse: boolean): Promise<void> {
       if (this.state.isBusy()) {
         this.reset();
       }
 
       this.format = format;
+      this.hideMouse = hideMouse;
       const ui = this.ensureUI();
       this.controls = new RecordingControlPanel(ui);
       await this.startRecording("screen");
     }
 
+    startElementScreenshotSelection(format: ScreenshotFormat): void {
+      if (this.state.isBusy()) {
+        this.reset();
+      }
+
+      const ui = this.ensureUI();
+      const highlighter = new HoverHighlighter(ui);
+      const overlay = new OverlayRenderer(ui);
+      const bubble = new FloatingActionBubble(ui);
+      this.selection = new ElementSelectionController(this.state, highlighter, overlay, bubble);
+      this.selection.start(
+        (element) => void this.captureElementScreenshot(element, format),
+        () => this.reset(),
+        "Screenshot",
+        "camera"
+      );
+    }
+
+    async captureScreenScreenshot(format: ScreenshotFormat): Promise<void> {
+      if (this.state.isBusy()) {
+        this.reset();
+      }
+
+      try {
+        await this.screenshot.capture("screen", format);
+        this.showToast("Screenshot saved.");
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "Screenshot could not be saved.");
+      }
+    }
+
     private async startElementRecording(element: Element): Promise<void> {
       this.selection?.transitionToRecording();
       await waitForSelectionUiToClear();
-      this.cursorSuppressor.enableForElement(element);
+      if (this.hideMouse) {
+        this.cursorSuppressor.enableForElement(element);
+      }
       await this.startRecording("element", getClampedRect(element));
       this.startCropUpdates(element);
+    }
+
+    private async captureElementScreenshot(element: Element, format: ScreenshotFormat): Promise<void> {
+      try {
+        this.selection?.transitionToRecording();
+        await waitForSelectionUiToClear();
+        await this.screenshot.capture("element", format, getClampedRect(element));
+        this.reset();
+        this.showToast("Screenshot saved.");
+      } catch (error) {
+        this.reset();
+        this.showToast(error instanceof Error ? error.message : "Screenshot could not be saved.");
+      }
     }
 
     private async startRecording(mode: RecorderMode, crop?: RectSnapshot): Promise<void> {
@@ -958,6 +1063,37 @@ if (!window.__elementRecorderLoaded) {
         font-size: 13px;
       }
 
+      .er-pill-icon.camera {
+        position: relative;
+        width: 17px;
+        height: 13px;
+        flex: 0 0 auto;
+        border: 2px solid #00a884;
+        border-radius: 4px;
+      }
+
+      .er-pill-icon.camera::before {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 2px;
+        width: 5px;
+        height: 5px;
+        border: 2px solid #00a884;
+        border-radius: 50%;
+      }
+
+      .er-pill-icon.camera::after {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: -5px;
+        width: 7px;
+        height: 3px;
+        border-radius: 3px 3px 0 0;
+        background: #00a884;
+      }
+
       .er-icon-button {
         width: 34px;
         height: 34px;
@@ -1152,6 +1288,15 @@ if (!window.__elementRecorderLoaded) {
 
   function getMessageFormat(message: { format?: RecordingFormat }): RecordingFormat {
     return message.format === "mp4" || message.format === "gif" ? message.format : "webm";
+  }
+
+  function getMessageHideMouse(message: { hideMouse?: boolean }): boolean {
+    return message.hideMouse !== false;
+  }
+
+  function getMessageScreenshotFormat(message: { screenshotFormat?: ScreenshotFormat }): ScreenshotFormat {
+    if (message.screenshotFormat === "jpeg" || message.screenshotFormat === "webp") return message.screenshotFormat;
+    return "png";
   }
 
   function waitForSelectionUiToClear(): Promise<void> {
